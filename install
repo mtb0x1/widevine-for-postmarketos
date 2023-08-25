@@ -1,0 +1,57 @@
+#!/bin/sh
+export PACKAGE="libwidevinecdm0_4.10.2252.0+3_arm64.deb"
+export URL="https://archive.raspberrypi.org/debian/pool/main/w/widevine/${PACKAGE}"
+export PKGVER=4.10.2257.0
+export _major_version="$(echo ${PKGVER} | cut -d. -f1)"
+export _minor_version="$(echo ${PKGVER} | cut -d. -f2)"
+
+dnf install -y dpkg
+mkdir extract
+mkdir tmp
+mkdir staging
+wget ${URL} -O tmp/${PACKAGE}
+dpkg -x tmp/${PACKAGE} extract/
+python3 ./widevine_fixup.py extract/opt/WidevineCdm/_platform_specific/linux_arm64/libwidevinecdm_real.so tmp/libwidevinecdm.so
+
+cd staging
+
+echo "{" > manifest.json
+echo "   \"name\": \"WidevineCdm\"," >> manifest.json
+echo "   \"description\": \"Widevine Content Decryption Module\"," >> manifest.json
+echo "   \"version\": \"${PKGVER}\"," >> manifest.json
+echo "   \"x-cdm-codecs\": \"vp8,vp9.0,avc1,av01\"," >> manifest.json
+echo "   \"x-cdm-host-versions\": \"${_minor_version}\"," >> manifest.json
+echo "   \"x-cdm-interface-versions\": \"${_minor_version}\"," >> manifest.json
+echo "   \"x-cdm-module-versions\": \"${_major_version}\"," >> manifest.json
+echo "   \"x-cdm-persistent-license-support\": true" >> manifest.json
+echo "}" >> manifest.json
+
+# Create firefox preferences file
+echo "// Set preferences related to widevine loading" > widevine.js
+echo "pref(\"media.gmp-widevinecdm.version\", \"${PKGVER}\");" >> widevine.js
+echo "pref(\"media.gmp-widevinecdm.visible\", true);" >> widevine.js
+echo "pref(\"media.gmp-widevinecdm.enabled\", true);" >> widevine.js
+echo "pref(\"media.gmp-widevinecdm.autoupdate\", false);" >> widevine.js
+echo "pref(\"media.eme.enabled\", true);" >> widevine.js
+echo "pref(\"media.eme.encrypted-media-encryption-scheme.enabled\", true);" >> widevine.js
+
+mkdir -p usr/share/licenses/widevine-aarch64/
+curl https://www.google.com/intl/en/chrome/privacy/eula_text.html > usr/share/licenses/widevine-aarch64/eula_text.html
+
+mkdir -p opt/WidevineCdm/chromium/_platform_specific/linux_arm64
+install -Dm755 ../tmp/libwidevinecdm.so opt/WidevineCdm/chromium/_platform_specific/linux_arm64/
+cp -a manifest.json opt/WidevineCdm/chromium
+
+mkdir -p opt/WidevineCdm/firefox/gmp-widevinecdm/${PKGVER}
+install -Dm755 ../tmp/libwidevinecdm.so opt/WidevineCdm/firefox/gmp-widevinecdm/${PKGVER}
+mkdir -p usr/lib64/firefox/browser/defaults/preferences/
+mv manifest.json opt/WidevineCdm/firefox/gmp-widevinecdm/${pkgver}/
+mv widevine.js usr/lib64/firefox/browser/defaults/preferences/
+
+mkdir -p usr/local/bin
+cp -a ../register_widevine_* usr/local/bin/
+
+cp -a * /
+
+echo
+echo "Done!"
